@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Gignyt Dash Mobile</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            /* Prevents blue tap-highlight boxes on mobile webviews */
+            -webkit-tap-highlight-color: transparent;
+            /* Disables text selection overlays while gaming */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            background-color: #0c051a; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            color: #fff;
+        }
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #11052C;
+        }
+        canvas {
+            background: #11052C; 
+            display: block;
+            /* Dynamic mobile fit: forces the canvas to maximize screen real estate responsively */
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            box-shadow: 0 0 30px rgba(189, 0, 255, 0.2);
+        }
+        #uiOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(17, 5, 44, 0.95); 
+            transition: opacity 0.3s ease;
+            padding: 20px;
+        }
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        h2 {
+            font-size: 1.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #00d2ff;
+            text-shadow: 0 0 10px #00d2ff;
+            margin-bottom: 5px;
+            text-align: center;
+        }
+        #subOverlayText {
+            margin-bottom: 15px; 
+            color: #bd00ff; 
+            text-shadow: 0 0 8px #bd00ff;
+            font-size: 1rem;
+        }
+        #usernameInput {
+            padding: 10px;
+            font-size: 1rem;
+            border: 2px solid #bd00ff; 
+            border-radius: 4px;
+            background: #1f0b47;
+            color: #fff;
+            margin-bottom: 15px;
+            text-align: center;
+            outline: none;
+            width: 220px;
+            box-shadow: 0 0 8px rgba(189, 0, 255, 0.2);
+        }
+        #usernameInput:focus {
+            border-color: #00d2ff; 
+            box-shadow: 0 0 15px rgba(0, 210, 255, 0.5);
+        }
+        button {
+            padding: 10px 28px;
+            font-size: 1.1rem;
+            background: #00d2ff; 
+            color: #0c051a;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            text-transform: uppercase;
+            box-shadow: 0 0 15px #00d2ff;
+        }
+        #instructions {
+            margin-top: 15px;
+            font-size: 0.8rem;
+            color: #bd00ff; 
+            text-shadow: 0 0 5px rgba(189, 0, 255, 0.5);
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+        
+        <div id="uiOverlay">
+            <h2 id="overlayText">Welcome, Gigryt Buddy</h2>
+            <p id="subOverlayText">Please enter your name:</p>
+            
+            <input type="text" id="usernameInput" placeholder="Runner Name..." maxlength="12" autocomplete="off">
+            
+            <button id="actionBtn">Start Game</button>
+            <p id="instructions">TAP ANYWHERE ON SCREEN TO JUMP</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const uiOverlay = document.getElementById('uiOverlay');
+        const actionBtn = document.getElementById('actionBtn');
+        const overlayText = document.getElementById('overlayText');
+        const subOverlayText = document.getElementById('subOverlayText');
+        const usernameInput = document.getElementById('usernameInput');
+
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playJumpSound() {
+            if (!audioCtx) return;
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(160, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.12);
+            gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.12);
+        }
+
+        function playHitSound() {
+            if (!audioCtx) return;
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(260, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(40, audioCtx.currentTime + 0.35);
+            gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.35);
+        }
+
+        function playMilestoneSound(index) {
+            if (!audioCtx) return;
+            const tones = [
+                [523.25, 659.25], 
+                [587.33, 783.99], 
+                [659.25, 987.77], 
+                [783.99, 1046.50]
+            ];
+            let selectedTone = tones[index % tones.length];
+            selectedTone.forEach((freq, idx) => {
+                let osc = audioCtx.createOscillator();
+                let gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime + (idx * 0.08));
+                gain.gain.setValueAtTime(0.12, audioCtx.currentTime + (idx * 0.08));
+                gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + (idx * 0.08) + 0.15);
+                osc.start(audioCtx.currentTime + (idx * 0.08));
+                osc.stop(audioCtx.currentTime + (idx * 0.08) + 0.15);
+            });
+        }
+
+        let gameState = 'START';
+        let playerName = 'Buddy';
+        let score = 0;
+        let milestoneCounter = 0;
+        let gameSpeed = 6;
+        let obstacles = [];
+        let animationFrameId;
+        let spawnTimer = 0;
+
+        let starsFar = [];
+        let cityMid = [];
+
+        function initParallax() {
+            starsFar = [];
+            cityMid = [];
+            for(let i = 0; i < 45; i++) {
+                starsFar.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * (canvas.height - 140),
+                    size: Math.random() * 2 + 1,
+                    alpha: Math.random() * 0.6 + 0.2
+                });
+            }
+            for(let i = 0; i < 15; i++) {
+                let w = 45 + Math.random() * 45;
+                cityMid.push({
+                    x: i * 65,
+                    width: w,
+                    height: 50 + Math.random() * 130,
+                    color: `rgba(61, 12, 133, ${Math.random() * 0.35 + 0.25})`
+                });
+            }
+        }
+
+        const player = {
+            x: 80,
+            y: 0,
+            width: 40,
+            height: 40,
+            gravity: 0.65, // Adjusted physics gravity slightly for smoother screen responsiveness
+            jumpForce: -13, // Adjusted jump height for touch layout dynamics
+            velocity: 0,
+            isGrounded: false,
+            color: '#00d2ff', 
+            glow: 18
+        };
+
+        const groundY = canvas.height - 50;
+        player.y = groundY - player.height;
+
+        // KEYBOARD ACCESSIBILITY (Kept intact for split testing)
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                if (document.activeElement !== usernameInput) {
+                    handleJump();
+                }
+            }
+        });
+
+        // ENHANCED MOBILE TOUCH HANDLING: Listens across the container wrapper
+        document.getElementById('gameContainer').addEventListener('touchstart', (e) => {
+            // Ignore touch triggers if user is trying to click the input form fields or start button
+            if (e.target !== usernameInput && e.target !== actionBtn) {
+                e.preventDefault(); // Prevents modern double-tap zooming defaults natively
+                handleJump();
+            }
+        }, { passive: false });
+
+        actionBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Stops event bubbles
+            initAudio(); 
+            
+            if (gameState === 'START' || gameState === 'GAMEOVER') {
+                let enteredName = usernameInput.value.trim();
+                playerName = enteredName !== "" ? enteredName : "Buddy";
+
+                resetGame();
+                gameState = 'PLAYING';
+                
+                usernameInput.style.display = 'none';
+                subOverlayText.style.display = 'none';
+                uiOverlay.classList.add('hidden');
+                
+                gameLoop();
+            }
+        });
+
+        function handleJump() {
+            if (gameState === 'PLAYING' && player.isGrounded) {
+                player.velocity = player.jumpForce;
+                player.isGrounded = false;
+                playJumpSound();
+            }
+        }
+
+        function resetGame() {
+            score = 0;
+            milestoneCounter = 0;
+            gameSpeed = 6;
+            obstacles = [];
+            spawnTimer = 0;
+            player.y = groundY - player.height;
+            player.velocity = 0;
+            player.isGrounded = true;
+            initParallax();
+        }
+
+        class Obstacle {
+            constructor() {
+                this.width = 20 + Math.random() * 25;
+                this.height = 35 + Math.random() * 35;
+                this.x = canvas.width;
+                this.y = groundY - this.height;
+                this.color = '#ff0077'; 
+            }
+            update() {
+                this.x -= gameSpeed;
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function updateParallax() {
+            starsFar.forEach(star => {
+                star.x -= (gameSpeed * 0.04);
+                if (star.x < 0) star.x = canvas.width;
+            });
+            cityMid.forEach(building => {
+                building.x -= (gameSpeed * 0.22);
+                if (building.x + building.width < 0) {
+                    building.x = canvas.width + Math.random() * 15;
+                }
+            });
+        }
+
+        function drawParallax() {
+            starsFar.forEach(star => {
+                ctx.fillStyle = `rgba(189, 0, 255, ${star.alpha})`; 
+                ctx.fillRect(star.x, star.y, star.size, star.size);
+            });
+            cityMid.forEach(building => {
+                ctx.fillStyle = building.color;
+                ctx.fillRect(building.x, groundY - building.height, building.width, building.height);
+                ctx.strokeStyle = 'rgba(0, 210, 255, 0.15)';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(building.x, groundY - building.height);
+                ctx.lineTo(building.x + building.width, groundY - building.height);
+                ctx.stroke();
+            });
+        }
+
+        function gameLoop() {
+            if (gameState !== 'PLAYING') return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            updateParallax();
+            drawParallax();
+
+            ctx.fillStyle = '#17063b';
+            ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+            ctx.strokeStyle = '#bd00ff'; 
+            ctx.lineWidth = 4;
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = '#bd00ff';
+            ctx.beginPath();
+            ctx.moveTo(0, groundY);
+            ctx.lineTo(canvas.width, groundY);
+            ctx.stroke();
+            ctx.shadowBlur = 0; 
+
+            player.velocity += player.gravity;
+            player.y += player.velocity;
+
+            if (player.y >= groundY - player.height) {
+                player.y = groundY - player.height;
+                player.velocity = 0;
+                player.isGrounded = true;
+            }
+
+            ctx.fillStyle = player.color;
+            ctx.shadowBlur = player.glow;
+            ctx.shadowColor = player.color;
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+            ctx.shadowBlur = 0;
+
+            spawnTimer++;
+            if (spawnTimer > 75 + Math.random() * 45) {
+                obstacles.push(new Obstacle());
+                spawnTimer = 0;
+            }
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                obstacles[i].update();
+                obstacles[i].draw();
+
+                if (
+                    player.x < obstacles[i].x + obstacles[i].width &&
+                    player.x + player.width > obstacles[i].x &&
+                    player.y < obstacles[i].y + obstacles[i].height &&
+                    player.y + player.height > obstacles[i].y
+                ) {
+                    gameOver();
+                    return;
+                }
+
+                if (obstacles[i].x + obstacles[i].width < 0) {
+                    obstacles.splice(i, 1);
+                    score++;
+                    
+                    if (score % 10 === 0) {
+                        playMilestoneSound(milestoneCounter);
+                        milestoneCounter++;
+                    }
+
+                    if (score % 5 === 0) gameSpeed += 0.5;
+                }
+            }
+
+            ctx.fillStyle = '#00d2ff'; 
+            ctx.font = 'bold 18px sans-serif';
+            ctx.fillText(`BUDDY: ${playerName.toUpperCase()}`, 20, 40);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(`SCORE: ${score}`, 20, 65);
+
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        function gameOver() {
+            gameState = 'GAMEOVER';
+            cancelAnimationFrame(animationFrameId);
+            playHitSound();
+            
+            usernameInput.style.display = 'block';
+            subOverlayText.style.display = 'block';
+            
+            overlayText.innerText = `Game Over, ${playerName}!`;
+            subOverlayText.innerText = `Final Score: ${score}. Try again?`;
+            actionBtn.innerText = 'Run Again';
+            uiOverlay.classList.remove('hidden');
+        }
+
+        initParallax();
+    </script>
+</body>
+</html>
